@@ -1,0 +1,114 @@
+name: Build Kernel
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  ARCH: arm64
+  CLANG_VERSION: clang-r416183b
+  DEFCONFIG: k6833v1_64_k419_defconfig
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc \
+            bison \
+            ccache \
+            device-tree-compiler \
+            flex \
+            libelf-dev \
+            libssl-dev \
+            rsync
+
+      - name: Cache clang toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: prebuilts/clang/host/linux-x86/${{ env.CLANG_VERSION }}
+          key: clang-${{ env.CLANG_VERSION }}-v1
+
+      - name: Download AOSP clang
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p prebuilts/clang/host/linux-x86
+          cd prebuilts/clang/host/linux-x86
+          git clone --depth=1 \
+            --branch "${{ env.CLANG_VERSION }}" \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            "${{ env.CLANG_VERSION }}" \
+          || git clone --depth=1 \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            "${{ env.CLANG_VERSION }}"
+          rm -rf "${{ env.CLANG_VERSION }}/.git"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.ref_name }}-
+            ccache-
+
+      - name: Build kernel
+        run: |
+          export PATH="${{ github.workspace }}/prebuilts/clang/host/linux-x86/${{ env.CLANG_VERSION }}/bin:$PATH"
+          export LD_LIBRARY_PATH="${{ github.workspace }}/prebuilts/clang/host/linux-x86/${{ env.CLANG_VERSION }}/lib64:$LD_LIBRARY_PATH"
+          export CC="ccache clang"
+
+          make O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            ${{ env.DEFCONFIG }}
+
+          make O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            -j$(nproc)
+
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/.ccache
+          key: ccache-${{ github.ref_name }}-${{ github.sha }}
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: |
+            out/arch/arm64/boot/Image*
+
+      - name: Upload device tree blobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtb
+          path: out/arch/arm64/boot/dts/mediatek/*.dtb
+
+      - name: Upload kernel modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: modules
+          path: out/**/*.ko
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: out/build.log
