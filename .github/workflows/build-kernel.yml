@@ -1,11 +1,15 @@
 name: Build Kernel
 
 on:
+  push:
+    branches: [main, master, oppo/mt6833_u_14.0.0_a97_a57_5g]
+  pull_request:
+    branches: [main, master, oppo/mt6833_u_14.0.0_a97_a57_5g]
   workflow_dispatch:
 
 env:
   ARCH: arm64
-  CLANG_VERSION: clang-r416183b
+  CLANG_VERSION: clang-r450784e
   DEFCONFIG: k6833v1_64_k419_defconfig
 
 jobs:
@@ -35,19 +39,15 @@ jobs:
           path: prebuilts/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           key: clang-${{ env.CLANG_VERSION }}-v1
 
-      - name: Download AOSP clang
+      - name: Download clang
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
-          mkdir -p prebuilts/clang/host/linux-x86
-          cd prebuilts/clang/host/linux-x86
-          git clone --depth=1 \
-            --branch "${{ env.CLANG_VERSION }}" \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-            "${{ env.CLANG_VERSION }}" \
-          || git clone --depth=1 \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-            "${{ env.CLANG_VERSION }}"
-          rm -rf "${{ env.CLANG_VERSION }}/.git"
+          mkdir -p prebuilts/clang/host/linux-x86/${{ env.CLANG_VERSION }}
+          wget -q --show-progress \
+            "https://github.com/YongfaWang/KernelSU_Action/raw/main/linux-x86-refs_heads_master-kernel-build-2022-${{ env.CLANG_VERSION }}.tar.gz" \
+            -O - | tar xzf - \
+            -C prebuilts/clang/host/linux-x86/${{ env.CLANG_VERSION }} \
+            --strip-components=1
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
