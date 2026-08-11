@@ -899,11 +899,6 @@ config OPLUS_UXMEM_OPT
         help
           enable uxmem_opt
 
-#ifdef OPLUS_FEATURE_MEMLEAK_DETECT
-source "mm/malloc_track/Kconfig.compat"
-source "mm/task_mem/Kconfig"
-#endif
-
 config LOOK_AROUND
 	bool "look around"
 	default n
