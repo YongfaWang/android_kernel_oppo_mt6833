@@ -1,100 +1,121 @@
-name: Build OPPO Kernel (Clang 11 + GCC 4.9)
+name: Build OPPO MT6833 Kernel
 
 on:
   workflow_dispatch:
     inputs:
       kernel_repo:
-        description: '内核源码仓库地址'
+        description: "内核源码仓库地址"
         required: true
-        default: 'https://github.com/YongfaWang/android_kernel_oppo_mt6833'
+        default: "https://github.com/YongfaWang/android_kernel_oppo_mt6833"
       kernel_branch:
-        description: '内核源码仓库分支'
+        description: "内核源码分支"
         required: true
-        default: 'oppo/mt6833_u_14.0.0_a97_a57_5g'
+        default: "oppo/mt6833_u_14.0.0_a97_a57_5g"
       defconfig:
-        description: '内核配置文件'
+        description: "defconfig 名称"
         required: true
-        default: 'k6833v1_64_k419_defconfig'
+        default: "k6833v1_64_k419_defconfig"
+      make_jobs:
+        description: "并行编译线程数"
+        required: false
+        default: "$(nproc)"
 
 jobs:
   build:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential libssl-dev bc flex bison git zip unzip curl wget tar xz-utils cpio rsync lzop xz-utils zstd libncurses-dev libffi-dev libbz2-dev dnsutils net-tools lsb-release aria2 pigz
+          sudo apt install -y \
+            build-essential libssl-dev bc flex bison git zip unzip \
+            curl wget tar xz-utils cpio rsync lzop zstd \
+            libncurses-dev libffi-dev libbz2-dev
 
       - name: Set swap to 10G
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
 
-      # 克隆工具链：Clang 11 和 GCC 4.9
       - name: Setup Toolchains (Clang 11 + GCC 4.9)
         run: |
           cd /tmp
-          
-          echo "====== 克隆 Clang 11 ======"
-          git clone --depth=1 -b 11.x https://gitlab.com/stormbreaker-project/google-clang clang-11
-          
-          echo "====== 克隆 GCC 4.9 (64位) ======"
-          git clone --depth=1 https://github.com/stormbreaker-project/aarch64-linux-android-4.9 gcc64
-          
-          echo "====== 克隆 GCC 4.9 (32位) ======"
-          git clone --depth=1 https://github.com/stormbreaker-project/arm-linux-androideabi-4.9 gcc32
-          
-          echo "Toolchains setup finished."
+
+          echo "====== Clang 11 ======"
+          git clone --depth=1 -b 11.x \
+            https://gitlab.com/stormbreaker-project/google-clang clang-11
+
+          echo "====== GCC 4.9 (aarch64) ======"
+          git clone --depth=1 \
+            https://github.com/stormbreaker-project/aarch64-linux-android-4.9 gcc64
+
+          echo "====== GCC 4.9 (arm) ======"
+          git clone --depth=1 \
+            https://github.com/stormbreaker-project/arm-linux-androideabi-4.9 gcc32
+
+          echo "Toolchains ready."
           /tmp/clang-11/bin/clang --version
 
-      - name: Clone Kernel Source to /kernel/msm-5.4
+      - name: Clone Kernel Source
         run: |
-          sudo rm -rf /kernel/msm-5.4
+          sudo rm -rf /kernel/source
           sudo mkdir -p /kernel
-          sudo git clone --depth=1 --branch ${{ github.event.inputs.kernel_branch }} \
-            ${{ github.event.inputs.kernel_repo }} kernel/msm-5.4
-      - name: Fix Permissions
-        run: |
-          sudo chown -R $USER:$USER kernel
-          sudo chmod -R 755 kernel
+          sudo git clone --depth=1 \
+            --branch "${{ github.event.inputs.kernel_branch }}" \
+            "${{ github.event.inputs.kernel_repo }}" \
+            /kernel/source
+          sudo chown -R "$USER:$USER" /kernel
+          sudo chmod -R 755 /kernel
 
-      - name: Build Kernel (Clang 11 + GCC 4.9)
+      - name: Generate defconfig
+        working-directory: /kernel/source
         run: |
-          cd kernel/msm-5.4
-          
-          # 设置工具链路径：Clang 11 在前，GCC 4.9 在后
-          export PATH=/tmp/clang-11/bin:/tmp/gcc64/bin:/tmp/gcc32/bin:$PATH
-          
-          echo "Generating defconfig: ${{ github.event.inputs.defconfig }}"
+          export PATH="/tmp/clang-11/bin:/tmp/gcc64/bin:/tmp/gcc32/bin:$PATH"
+
+          echo "defconfig: ${{ github.event.inputs.defconfig }}"
           make -j1 \
-               ARCH=arm64 \
-               LLVM=1 \
-               LLVM_IAS=1 \
-               CC=clang \
-               LD=ld.lld \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE=aarch64-linux-android- \
-               CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-               ${{ github.event.inputs.defconfig }}
-          
-          echo "Starting compilation..."
-          make -j1 \
-               ARCH=arm64 \
-               LLVM=1 \
-               LLVM_IAS=1 \
-               CC=clang \
-               LD=ld.lld \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE=aarch64-linux-android- \
-               CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-               dtbs
+            ARCH=arm64 \
+            CC=clang \
+            LD=ld.lld \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            "${{ github.event.inputs.defconfig }}"
+
+      - name: Build Kernel
+        working-directory: /kernel/source
+        run: |
+          export PATH="/tmp/clang-11/bin:/tmp/gcc64/bin:/tmp/gcc32/bin:$PATH"
+
+          make -j${{ github.event.inputs.make_jobs }} \
+            ARCH=arm64 \
+            CC=clang \
+            LD=ld.lld \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            dtbs
+
+      - name: Collect Artifacts
+        run: |
+          echo "====== DTB 产物 ======"
+          find /kernel/source/arch/arm64/boot/dts -name "*.dtb" 2>/dev/null | sort || echo "(无 DTB 文件)"
+          echo ""
+          echo "====== Image ======"
+          ls -lh /kernel/source/arch/arm64/boot/Image* 2>/dev/null || echo "(未生成 Image)"
+
+      - name: Upload DTB Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtbs
+          path: /kernel/source/arch/arm64/boot/dts/**/*.dtb
 
       - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: kernel-image
-          path: kernel/msm-5.4/out/arch/arm64/boot/dts/17107/*.dtb
+          path: |
+            /kernel/source/arch/arm64/boot/Image*
+            /kernel/source/arch/arm64/boot/Image.gz*
