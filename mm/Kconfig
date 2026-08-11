@@ -884,9 +884,6 @@ config LRU_GEN_STATS
 
 endmenu
 
-#ifdef OPLUS_FEATURE_HEALTHINFO
-source "mm/healthinfo/Kconfig"
-#endif /*OPLUS_FEATURE_HEALTHINFO*/
 
 #ifdef OPLUS_FEATURE_MULTI_FREEAREA
 config PHYSICAL_ANTI_FRAGMENTATION
